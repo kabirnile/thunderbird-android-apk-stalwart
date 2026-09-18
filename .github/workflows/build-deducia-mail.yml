@@ -13,37 +13,39 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Auto-Inject Root Logo into Android Resources
+      - name: Force Apply Root Logo to All Android Resources
         run: |
-          ROOT_LOGO=$(find . -maxdepth 1 -type f \( -iname "*.png" -o -iname "*.jpg" \) | head -n 1)
-
-          if [ -z "$ROOT_LOGO" ]; then
-            echo "Error: No logo PNG/JPG found in root directory!"
+          if [ ! -f "ic_launcher.png" ]; then
+            echo "Error: ic_launcher.png not found in root directory!"
             exit 1
           fi
 
-          echo "Found root logo: $ROOT_LOGO"
+          echo "Applying root ic_launcher.png..."
 
-          find . -path "*/src/main/res/*" -name "ic_launcher*.png" -exec cp "$ROOT_LOGO" {} \;
-          find . -path "*/src/main/res/*" -name "ic_app_logo*.png" -exec cp "$ROOT_LOGO" {} \;
+          # 1. Delete adaptive icon XML files forcing old vector artwork
+          find app-thunderbird/src/main/res/ -iname "ic_launcher*.xml" -delete
+          find app-thunderbird/src/main/res/ -iname "ic_app_logo*.xml" -delete
 
-          echo "Successfully applied root logo to all app icon resources."
+          # 2. Overwrite all PNG launcher and drawable assets across all density folders
+          find app-thunderbird/src/main/res/ -iname "ic_launcher*.png" -exec cp -f ic_launcher.png {} \;
+          find app-thunderbird/src/main/res/ -iname "ic_app_logo*.png" -exec cp -f ic_launcher.png {} \;
+
+          echo "Logo replacement complete."
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
           java-version: '17'
           distribution: 'temurin'
-          cache: gradle
 
       - name: Grant Execute Permission for Gradle
         run: chmod +x gradlew
 
-      - name: Build Deducia Mail APK
-        run: ./gradlew :app-thunderbird:assembleFossRelease --no-daemon
+      - name: Clean & Build Auto-Signed Debug APK
+        run: ./gradlew clean :app-thunderbird:assembleFossDebug --no-daemon
 
-      - name: Upload Release APK
+      - name: Upload Installable APK
         uses: actions/upload-artifact@v4
         with:
-          name: DeduciaMail-Release-APK
-          path: app-thunderbird/build/outputs/**/*.apk
+          name: DeduciaMail-Installable-APK
+          path: app-thunderbird/build/outputs/apk/foss/debug/*.apk
