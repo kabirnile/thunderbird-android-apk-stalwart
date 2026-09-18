@@ -13,6 +13,26 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
+      - name: Auto-Inject Root Logo into Android Resources
+        run: |
+          # Detect logo file uploaded directly in the main root folder
+          ROOT_LOGO=$(find . -maxdepth 1 -type f \( -iname "*.png" -o -iname "*.jpg" \) | head -n 1)
+
+          if [ -z "$ROOT_LOGO" ]; then
+            echo "Error: No logo PNG/JPG found in root directory!"
+            exit 1
+          fi
+
+          echo "Found root logo: $ROOT_LOGO"
+
+          # Overwrite all launcher icons across all mipmap density folders
+          find . -path "*/src/main/res/*" -name "ic_launcher*.png" -exec cp "$ROOT_LOGO" {} \;
+          
+          # Overwrite all app logo drawables across all drawable folders
+          find . -path "*/src/main/res/*" -name "ic_app_logo*.png" -exec cp "$ROOT_LOGO" {} \;
+
+          echo "Successfully applied root logo to all app icon resources."
+
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
