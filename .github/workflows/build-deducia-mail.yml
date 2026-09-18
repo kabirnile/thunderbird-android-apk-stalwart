@@ -15,7 +15,6 @@ jobs:
 
       - name: Auto-Inject Root Logo into Android Resources
         run: |
-          # Detect logo file uploaded directly in the main root folder
           ROOT_LOGO=$(find . -maxdepth 1 -type f \( -iname "*.png" -o -iname "*.jpg" \) | head -n 1)
 
           if [ -z "$ROOT_LOGO" ]; then
@@ -25,10 +24,7 @@ jobs:
 
           echo "Found root logo: $ROOT_LOGO"
 
-          # Overwrite all launcher icons across all mipmap density folders
           find . -path "*/src/main/res/*" -name "ic_launcher*.png" -exec cp "$ROOT_LOGO" {} \;
-          
-          # Overwrite all app logo drawables across all drawable folders
           find . -path "*/src/main/res/*" -name "ic_app_logo*.png" -exec cp "$ROOT_LOGO" {} \;
 
           echo "Successfully applied root logo to all app icon resources."
@@ -44,10 +40,10 @@ jobs:
         run: chmod +x gradlew
 
       - name: Build Deducia Mail APK
-        run: ./gradlew :app-thunderbird:assembleRelease --no-daemon
+        run: ./gradlew :app-thunderbird:assembleFossRelease --no-daemon
 
       - name: Upload Release APK
         uses: actions/upload-artifact@v4
         with:
           name: DeduciaMail-Release-APK
-          path: app-thunderbird/build/outputs/apk/thunderbird/release/*.apk
+          path: app-thunderbird/build/outputs/**/*.apk
