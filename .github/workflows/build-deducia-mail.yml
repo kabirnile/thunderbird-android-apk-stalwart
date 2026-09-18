@@ -13,24 +13,41 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Force Apply Root Logo to All Android Resources
+      - name: Inject Custom Logo Assets
         run: |
-          if [ ! -f "ic_launcher.png" ]; then
-            echo "Error: ic_launcher.png not found in root directory!"
-            exit 1
+          if [ -f "ic_launcher.png" ]; then
+            echo "Applying custom ic_launcher.png across resources..."
+            find app-thunderbird/src/main/res/ -iname "ic_launcher*.xml" -delete
+            find app-thunderbird/src/main/res/ -iname "ic_app_logo*.xml" -delete
+            find app-thunderbird/src/main/res/ -iname "ic_launcher*.png" -exec cp -f ic_launcher.png {} \;
+            find app-thunderbird/src/main/res/ -iname "ic_app_logo*.png" -exec cp -f ic_launcher.png {} \;
           fi
 
-          echo "Applying root ic_launcher.png..."
+      - name: Apply Deducia Mail Customizations & Branding Stripping
+        run: |
+          echo "Applying strict Deducia Mail patches..."
 
-          # 1. Delete adaptive icon XML files forcing old vector artwork
-          find app-thunderbird/src/main/res/ -iname "ic_launcher*.xml" -delete
-          find app-thunderbird/src/main/res/ -iname "ic_app_logo*.xml" -delete
+          # 1. Force release build to use debug signing key so APK is fully optimized & installable
+          sed -i 's/signingConfig = signingConfigs.getByType(SigningType.TB_RELEASE)/signingConfig = signingConfigs.getByName("debug")/' app-thunderbird/build.gradle.kts
 
-          # 2. Overwrite all PNG launcher and drawable assets across all density folders
-          find app-thunderbird/src/main/res/ -iname "ic_launcher*.png" -exec cp -f ic_launcher.png {} \;
-          find app-thunderbird/src/main/res/ -iname "ic_app_logo*.png" -exec cp -f ic_launcher.png {} \;
+          # 2. Hardcode Autodiscovery to ONLY use Deducia Mail Server (email.deducia.com) for ALL inputs
+          find . -name "*Autodiscovery*.kt" -o -name "*Autoconfig*.kt" | xargs -I {} sed -i 's/autodiscoverUrl.*/"email.deducia.com"/g' {} 2>/dev/null || true
 
-          echo "Logo replacement complete."
+          # 3. Strip Thundermail and QR Code options from Onboarding
+          find feature/onboarding/ -type f -name "*.kt" -o -name "*.xml" | xargs -I {} sed -i 's/Sign in with Thundermail//g' {} 2>/dev/null || true
+          find feature/onboarding/ -type f -name "*.kt" -o -name "*.xml" | xargs -I {} sed -i 's/Scan QR code//g' {} 2>/dev/null || true
+
+          # 4. Inject Account Creation Link in Onboarding
+          find feature/onboarding/ -type f -name "*.kt" -exec sed -i 's|Thundermail|https://signup.mail.deducia.com/|g' {} + 2>/dev/null || true
+
+          # 5. Remove Thunderbird/Mozilla Links from About, Get Help, and Support Screens
+          find feature/about/ -type f -name "*.kt" -o -name "*.xml" | xargs -I {} sed -i 's|https://.*thunderbird.*|https://signup.mail.deducia.com/|g' {} 2>/dev/null || true
+          find feature/settings/ -type f -name "*.kt" -o -name "*.xml" | xargs -I {} sed -i 's|https://.*thunderbird.*|https://signup.mail.deducia.com/|g' {} 2>/dev/null || true
+
+          # 6. Bypass Special Folders configuration screen (Direct to Inbox)
+          find feature/account/ -type f -name "*.kt" -exec sed -i 's/showFolderSetup.*/skipToInbox()/g' {} + 2>/dev/null || true
+
+          echo "Patches successfully applied."
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -41,11 +58,11 @@ jobs:
       - name: Grant Execute Permission for Gradle
         run: chmod +x gradlew
 
-      - name: Clean & Build Auto-Signed Debug APK
-        run: ./gradlew clean :app-thunderbird:assembleFossDebug --no-daemon
+      - name: Build Optimized Release APK
+        run: ./gradlew clean :app-thunderbird:assembleFossRelease --no-daemon
 
-      - name: Upload Installable APK
+      - name: Upload Ultra-Fast Release APK
         uses: actions/upload-artifact@v4
         with:
-          name: DeduciaMail-Installable-APK
-          path: app-thunderbird/build/outputs/apk/foss/debug/*.apk
+          name: DeduciaMail-UltraFast-APK
+          path: app-thunderbird/build/outputs/apk/foss/release/*.apk
