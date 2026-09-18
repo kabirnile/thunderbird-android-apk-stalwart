@@ -10,7 +10,7 @@ val testCoverageEnabled = providers
     .isPresent
 
 android {
-    namespace = "com.deducia.mail"
+    namespace = "net.thunderbird.android"
 
     defaultConfig {
         applicationId = "com.deducia.mail"
