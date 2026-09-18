@@ -13,41 +13,43 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Replace All Logos with Root ic_launcher.png
+      - name: Fix and Replace All Logos
         run: |
           if [ ! -f "ic_launcher.png" ]; then
             echo "Error: ic_launcher.png not found in root directory!"
             exit 1
           fi
 
-          echo "Overwriting vector logos and drawables..."
+          echo "Replacing icons and populating missing drawable references..."
 
-          # Remove vector XML launcher and app logo overrides
-          find . -iname "ic_launcher*.xml" -delete
-          find . -iname "ic_app_logo*.xml" -delete
-          find . -iname "thunderbird_logo*.xml" -delete
+          # Remove XML vector files that override PNG icons
+          find app-thunderbird/src/main/res/ -iname "ic_launcher*.xml" -delete
+          find app-thunderbird/src/main/res/ -iname "ic_app_logo*.xml" -delete
+          find app-thunderbird/src/main/res/ -iname "thunderbird_logo*.xml" -delete
 
-          # Replace all PNG instances of app icons and logos
-          find . -iname "ic_launcher*.png" -exec cp -f ic_launcher.png {} \;
-          find . -iname "ic_app_logo*.png" -exec cp -f ic_launcher.png {} \;
-          find . -iname "thunderbird_logo*.png" -exec cp -f ic_launcher.png {} \;
+          # Copy root ic_launcher.png into every drawable and mipmap folder as ic_app_logo.png and ic_launcher.png
+          find app-thunderbird/src/main/res/ -type d \( -name "drawable*" -o -name "mipmap*" \) | while read -r dir; do
+            cp -f ic_launcher.png "$dir/ic_launcher.png"
+            cp -f ic_launcher.png "$dir/ic_app_logo.png"
+            cp -f ic_launcher.png "$dir/thunderbird_logo.png"
+          done
 
       - name: Patch UI Layouts & Enforce Deducia Mail Rules
         run: |
           echo "Patching strings and UI configuration..."
 
           # 1. Hide 'Sign in with Thundermail' and 'Scan QR Code' buttons
-          find . -iname "*.xml" -exec sed -i 's/android:id="@+id\/thundermail_button"/android:id="@+id\/thundermail_button" android:visibility="gone"/g' {} +
-          find . -iname "*.xml" -exec sed -i 's/android:id="@+id\/qr_code_button"/android:id="@+id\/qr_code_button" android:visibility="gone"/g' {} +
+          find app-thunderbird/ -iname "*.xml" -exec sed -i 's/android:id="@+id\/thundermail_button"/android:id="@+id\/thundermail_button" android:visibility="gone"/g' {} +
+          find app-thunderbird/ -iname "*.xml" -exec sed -i 's/android:id="@+id\/qr_code_button"/android:id="@+id\/qr_code_button" android:visibility="gone"/g' {} +
 
           # 2. Add Sign-Up Link redirect
-          find . -iname "strings.xml" -exec sed -i 's/Create account/Create account at https:\/\/signup.mail.deducia.com\//g' {} +
+          find app-thunderbird/ -iname "strings.xml" -exec sed -i 's/Create account/Create account at https:\/\/signup.mail.deducia.com\//g' {} +
 
           # 3. Strip external About, Help, and Support Thunderbird URLs
-          find . -iname "strings.xml" -exec sed -i 's/https:\/\/support.mozilla.org[^"]*/https:\/\/deducia.com/g' {} +
-          find . -iname "strings.xml" -exec sed -i 's/https:\/\/www.thunderbird.net[^"]*/https:\/\/deducia.com/g' {} +
+          find app-thunderbird/ -iname "strings.xml" -exec sed -i 's/https:\/\/support.mozilla.org[^"]*/https:\/\/deducia.com/g' {} +
+          find app-thunderbird/ -iname "strings.xml" -exec sed -i 's/https:\/\/www.thunderbird.net[^"]*/https:\/\/deducia.com/g' {} +
 
-          # 4. Enforce Deducia Mail Server for all domains (Override autodiscover defaults)
+          # 4. Enforce Deducia Mail Server for all domains
           find . -iname "*.kt" -o -iname "*.java" | xargs sed -i 's/imap\.googlemail\.com/email.deducia.com/g' || true
           find . -iname "*.kt" -o -iname "*.java" | xargs sed -i 's/pop\.googlemail\.com/email.deducia.com/g' || true
 
