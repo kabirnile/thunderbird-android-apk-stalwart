@@ -13,41 +13,43 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Inject Custom Logo Assets
+      - name: Replace All Logos with Root ic_launcher.png
         run: |
-          if [ -f "ic_launcher.png" ]; then
-            echo "Applying custom ic_launcher.png across resources..."
-            find app-thunderbird/src/main/res/ -iname "ic_launcher*.xml" -delete
-            find app-thunderbird/src/main/res/ -iname "ic_app_logo*.xml" -delete
-            find app-thunderbird/src/main/res/ -iname "ic_launcher*.png" -exec cp -f ic_launcher.png {} \;
-            find app-thunderbird/src/main/res/ -iname "ic_app_logo*.png" -exec cp -f ic_launcher.png {} \;
+          if [ ! -f "ic_launcher.png" ]; then
+            echo "Error: ic_launcher.png not found in root directory!"
+            exit 1
           fi
 
-      - name: Apply Deducia Mail Customizations & Branding Stripping
+          echo "Overwriting vector logos and drawables..."
+
+          # Remove vector XML launcher and app logo overrides
+          find . -iname "ic_launcher*.xml" -delete
+          find . -iname "ic_app_logo*.xml" -delete
+          find . -iname "thunderbird_logo*.xml" -delete
+
+          # Replace all PNG instances of app icons and logos
+          find . -iname "ic_launcher*.png" -exec cp -f ic_launcher.png {} \;
+          find . -iname "ic_app_logo*.png" -exec cp -f ic_launcher.png {} \;
+          find . -iname "thunderbird_logo*.png" -exec cp -f ic_launcher.png {} \;
+
+      - name: Patch UI Layouts & Enforce Deducia Mail Rules
         run: |
-          echo "Applying strict Deducia Mail patches..."
+          echo "Patching strings and UI configuration..."
 
-          # 1. Force release build to use debug signing key so APK is fully optimized & installable
-          sed -i 's/signingConfig = signingConfigs.getByType(SigningType.TB_RELEASE)/signingConfig = signingConfigs.getByName("debug")/' app-thunderbird/build.gradle.kts
+          # 1. Hide 'Sign in with Thundermail' and 'Scan QR Code' buttons
+          find . -iname "*.xml" -exec sed -i 's/android:id="@+id\/thundermail_button"/android:id="@+id\/thundermail_button" android:visibility="gone"/g' {} +
+          find . -iname "*.xml" -exec sed -i 's/android:id="@+id\/qr_code_button"/android:id="@+id\/qr_code_button" android:visibility="gone"/g' {} +
 
-          # 2. Hardcode Autodiscovery to ONLY use Deducia Mail Server (email.deducia.com) for ALL inputs
-          find . -name "*Autodiscovery*.kt" -o -name "*Autoconfig*.kt" | xargs -I {} sed -i 's/autodiscoverUrl.*/"email.deducia.com"/g' {} 2>/dev/null || true
+          # 2. Add Sign-Up Link redirect
+          find . -iname "strings.xml" -exec sed -i 's/Create account/Create account at https:\/\/signup.mail.deducia.com\//g' {} +
 
-          # 3. Strip Thundermail and QR Code options from Onboarding
-          find feature/onboarding/ -type f -name "*.kt" -o -name "*.xml" | xargs -I {} sed -i 's/Sign in with Thundermail//g' {} 2>/dev/null || true
-          find feature/onboarding/ -type f -name "*.kt" -o -name "*.xml" | xargs -I {} sed -i 's/Scan QR code//g' {} 2>/dev/null || true
+          # 3. Strip external About, Help, and Support Thunderbird URLs
+          find . -iname "strings.xml" -exec sed -i 's/https:\/\/support.mozilla.org[^"]*/https:\/\/deducia.com/g' {} +
+          find . -iname "strings.xml" -exec sed -i 's/https:\/\/www.thunderbird.net[^"]*/https:\/\/deducia.com/g' {} +
 
-          # 4. Inject Account Creation Link in Onboarding
-          find feature/onboarding/ -type f -name "*.kt" -exec sed -i 's|Thundermail|https://signup.mail.deducia.com/|g' {} + 2>/dev/null || true
-
-          # 5. Remove Thunderbird/Mozilla Links from About, Get Help, and Support Screens
-          find feature/about/ -type f -name "*.kt" -o -name "*.xml" | xargs -I {} sed -i 's|https://.*thunderbird.*|https://signup.mail.deducia.com/|g' {} 2>/dev/null || true
-          find feature/settings/ -type f -name "*.kt" -o -name "*.xml" | xargs -I {} sed -i 's|https://.*thunderbird.*|https://signup.mail.deducia.com/|g' {} 2>/dev/null || true
-
-          # 6. Bypass Special Folders configuration screen (Direct to Inbox)
-          find feature/account/ -type f -name "*.kt" -exec sed -i 's/showFolderSetup.*/skipToInbox()/g' {} + 2>/dev/null || true
-
-          echo "Patches successfully applied."
+          # 4. Enforce Deducia Mail Server for all domains (Override autodiscover defaults)
+          find . -iname "*.kt" -o -iname "*.java" | xargs sed -i 's/imap\.googlemail\.com/email.deducia.com/g' || true
+          find . -iname "*.kt" -o -iname "*.java" | xargs sed -i 's/pop\.googlemail\.com/email.deducia.com/g' || true
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -61,8 +63,26 @@ jobs:
       - name: Build Optimized Release APK
         run: ./gradlew clean :app-thunderbird:assembleFossRelease --no-daemon
 
-      - name: Upload Ultra-Fast Release APK
+      - name: Auto-Sign Release APK
+        run: |
+          sudo apt-get update && sudo apt-get install -y apksigner
+          
+          # Generate temporary release keystore
+          keytool -genkey -v -keystore release.jks -alias deducia -keyalg RSA -keysize 2048 -validity 10000 -storepass deducia123 -keypass deducia123 -dname "CN=Deducia, OU=Mail, O=Deducia, L=City, C=IN"
+          
+          # Find and sign the generated release APK
+          RELEASE_APK=$(find app-thunderbird/build/outputs/apk/ -name "*release-unsigned.apk" -o -name "*release.apk" | head -n 1)
+          
+          if [ -f "$RELEASE_APK" ]; then
+            apksigner sign --ks release.jks --ks-pass pass:deducia123 --key-pass pass:deducia123 --out app-deducia-mail-release.apk "$RELEASE_APK"
+            echo "APK successfully signed."
+          else
+            echo "Error: Release APK not found!"
+            exit 1
+          fi
+
+      - name: Upload Fast Release APK
         uses: actions/upload-artifact@v4
         with:
-          name: DeduciaMail-UltraFast-APK
-          path: app-thunderbird/build/outputs/apk/foss/release/*.apk
+          name: DeduciaMail-Ultrafast-Release-APK
+          path: app-deducia-mail-release.apk
